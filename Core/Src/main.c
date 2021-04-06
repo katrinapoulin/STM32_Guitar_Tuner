@@ -19,7 +19,6 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -43,16 +42,17 @@
 /* Private variables ---------------------------------------------------------*/
 DAC_HandleTypeDef hdac1;
 
+DFSDM_Filter_HandleTypeDef hdfsdm1_filter0;
+DFSDM_Channel_HandleTypeDef hdfsdm1_channel0;
+DFSDM_Channel_HandleTypeDef hdfsdm1_channel2;
+DMA_HandleTypeDef hdma_dfsdm1_flt0;
+
 I2C_HandleTypeDef hi2c2;
 
 TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
 
-osThreadId defaultTaskHandle;
-osThreadId changeModeHandle;
-osThreadId sendDataHandle;
-osThreadId readDataHandle;
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -60,22 +60,20 @@ osThreadId readDataHandle;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_I2C2_Init(void);
 static void MX_USART1_UART_Init(void);
-void StartDefaultTask(void const * argument);
-void StartChangeMode(void const * argument);
-void StartSendData(void const * argument);
-void StartReadData(void const * argument);
-
+static void MX_DFSDM1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+int btn_state;
+int32_t data[30] = {0};
 /* USER CODE END 0 */
 
 /**
@@ -106,59 +104,23 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_DAC1_Init();
   MX_TIM2_Init();
   MX_I2C2_Init();
   MX_USART1_UART_Init();
+  MX_DFSDM1_Init();
   /* USER CODE BEGIN 2 */
-
+//  data = malloc(30 * sizeof(int));
+  HAL_DFSDM_FilterRegularStart(&hdfsdm1_filter0);
   /* USER CODE END 2 */
 
-  /* USER CODE BEGIN RTOS_MUTEX */
-  /* add mutexes, ... */
-  /* USER CODE END RTOS_MUTEX */
-
-  /* USER CODE BEGIN RTOS_SEMAPHORES */
-  /* add semaphores, ... */
-  /* USER CODE END RTOS_SEMAPHORES */
-
-  /* USER CODE BEGIN RTOS_TIMERS */
-  /* start timers, add new ones, ... */
-  /* USER CODE END RTOS_TIMERS */
-
-  /* USER CODE BEGIN RTOS_QUEUES */
-  /* add queues, ... */
-  /* USER CODE END RTOS_QUEUES */
-
-  /* Create the thread(s) */
-  /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
-  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
-
-  /* definition and creation of changeMode */
-  osThreadDef(changeMode, StartChangeMode, osPriorityNormal, 0, 128);
-  changeModeHandle = osThreadCreate(osThread(changeMode), NULL);
-
-  /* definition and creation of sendData */
-  osThreadDef(sendData, StartSendData, osPriorityNormal, 0, 128);
-  sendDataHandle = osThreadCreate(osThread(sendData), NULL);
-
-  /* definition and creation of readData */
-  osThreadDef(readData, StartReadData, osPriorityNormal, 0, 128);
-  readDataHandle = osThreadCreate(osThread(readData), NULL);
-
-  /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
-  /* USER CODE END RTOS_THREADS */
-
-  /* Start scheduler */
-  osKernelStart();
-
-  /* We should never get here as control is now taken by the scheduler */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  btn_state = 0;
   while (1)
   {
+	  data[0] = HAL_DFSDM_FilterGetRegularValue(&hdfsdm1_filter0, DFSDM1_Channel0);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -213,9 +175,11 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART1|RCC_PERIPHCLK_I2C2;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART1|RCC_PERIPHCLK_I2C2
+                              |RCC_PERIPHCLK_DFSDM1;
   PeriphClkInit.Usart1ClockSelection = RCC_USART1CLKSOURCE_PCLK2;
   PeriphClkInit.I2c2ClockSelection = RCC_I2C2CLKSOURCE_PCLK1;
+  PeriphClkInit.Dfsdm1ClockSelection = RCC_DFSDM1CLKSOURCE_PCLK;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
@@ -268,6 +232,76 @@ static void MX_DAC1_Init(void)
   /* USER CODE BEGIN DAC1_Init 2 */
 
   /* USER CODE END DAC1_Init 2 */
+
+}
+
+/**
+  * @brief DFSDM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_DFSDM1_Init(void)
+{
+
+  /* USER CODE BEGIN DFSDM1_Init 0 */
+
+  /* USER CODE END DFSDM1_Init 0 */
+
+  /* USER CODE BEGIN DFSDM1_Init 1 */
+
+  /* USER CODE END DFSDM1_Init 1 */
+  hdfsdm1_filter0.Instance = DFSDM1_Filter0;
+  hdfsdm1_filter0.Init.RegularParam.Trigger = DFSDM_FILTER_SW_TRIGGER;
+  hdfsdm1_filter0.Init.RegularParam.FastMode = ENABLE;
+  hdfsdm1_filter0.Init.RegularParam.DmaMode = ENABLE;
+  hdfsdm1_filter0.Init.FilterParam.SincOrder = DFSDM_FILTER_SINC3_ORDER;
+  hdfsdm1_filter0.Init.FilterParam.Oversampling = 32;
+  hdfsdm1_filter0.Init.FilterParam.IntOversampling = 1;
+  if (HAL_DFSDM_FilterInit(&hdfsdm1_filter0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  hdfsdm1_channel0.Instance = DFSDM1_Channel0;
+  hdfsdm1_channel0.Init.OutputClock.Activation = ENABLE;
+  hdfsdm1_channel0.Init.OutputClock.Selection = DFSDM_CHANNEL_OUTPUT_CLOCK_SYSTEM;
+  hdfsdm1_channel0.Init.OutputClock.Divider = 2;
+  hdfsdm1_channel0.Init.Input.Multiplexer = DFSDM_CHANNEL_EXTERNAL_INPUTS;
+  hdfsdm1_channel0.Init.Input.DataPacking = DFSDM_CHANNEL_STANDARD_MODE;
+  hdfsdm1_channel0.Init.Input.Pins = DFSDM_CHANNEL_SAME_CHANNEL_PINS;
+  hdfsdm1_channel0.Init.SerialInterface.Type = DFSDM_CHANNEL_SPI_RISING;
+  hdfsdm1_channel0.Init.SerialInterface.SpiClock = DFSDM_CHANNEL_SPI_CLOCK_INTERNAL;
+  hdfsdm1_channel0.Init.Awd.FilterOrder = DFSDM_CHANNEL_FASTSINC_ORDER;
+  hdfsdm1_channel0.Init.Awd.Oversampling = 10;
+  hdfsdm1_channel0.Init.Offset = 0;
+  hdfsdm1_channel0.Init.RightBitShift = 0x02;
+  if (HAL_DFSDM_ChannelInit(&hdfsdm1_channel0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  hdfsdm1_channel2.Instance = DFSDM1_Channel2;
+  hdfsdm1_channel2.Init.OutputClock.Activation = ENABLE;
+  hdfsdm1_channel2.Init.OutputClock.Selection = DFSDM_CHANNEL_OUTPUT_CLOCK_SYSTEM;
+  hdfsdm1_channel2.Init.OutputClock.Divider = 2;
+  hdfsdm1_channel2.Init.Input.Multiplexer = DFSDM_CHANNEL_EXTERNAL_INPUTS;
+  hdfsdm1_channel2.Init.Input.DataPacking = DFSDM_CHANNEL_STANDARD_MODE;
+  hdfsdm1_channel2.Init.Input.Pins = DFSDM_CHANNEL_SAME_CHANNEL_PINS;
+  hdfsdm1_channel2.Init.SerialInterface.Type = DFSDM_CHANNEL_SPI_RISING;
+  hdfsdm1_channel2.Init.SerialInterface.SpiClock = DFSDM_CHANNEL_SPI_CLOCK_INTERNAL;
+  hdfsdm1_channel2.Init.Awd.FilterOrder = DFSDM_CHANNEL_FASTSINC_ORDER;
+  hdfsdm1_channel2.Init.Awd.Oversampling = 1;
+  hdfsdm1_channel2.Init.Offset = 0;
+  hdfsdm1_channel2.Init.RightBitShift = 0x00;
+  if (HAL_DFSDM_ChannelInit(&hdfsdm1_channel2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_DFSDM_FilterConfigRegChannel(&hdfsdm1_filter0, DFSDM_CHANNEL_0, DFSDM_CONTINUOUS_CONV_ON) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN DFSDM1_Init 2 */
+
+  /* USER CODE END DFSDM1_Init 2 */
 
 }
 
@@ -411,6 +445,23 @@ static void MX_USART1_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMAMUX1_CLK_ENABLE();
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -422,8 +473,8 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
@@ -461,78 +512,6 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
-
-/* USER CODE BEGIN Header_StartDefaultTask */
-/**
-  * @brief  Function implementing the defaultTask thread.
-  * @param  argument: Not used
-  * @retval None
-  */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void const * argument)
-{
-  /* USER CODE BEGIN 5 */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END 5 */
-}
-
-/* USER CODE BEGIN Header_StartChangeMode */
-/**
-* @brief Function implementing the changeMode thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_StartChangeMode */
-void StartChangeMode(void const * argument)
-{
-  /* USER CODE BEGIN StartChangeMode */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END StartChangeMode */
-}
-
-/* USER CODE BEGIN Header_StartSendData */
-/**
-* @brief Function implementing the sendData thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_StartSendData */
-void StartSendData(void const * argument)
-{
-  /* USER CODE BEGIN StartSendData */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END StartSendData */
-}
-
-/* USER CODE BEGIN Header_StartReadData */
-/**
-* @brief Function implementing the readData thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_StartReadData */
-void StartReadData(void const * argument)
-{
-  /* USER CODE BEGIN StartReadData */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END StartReadData */
-}
 
  /**
   * @brief  Period elapsed callback in non blocking mode
