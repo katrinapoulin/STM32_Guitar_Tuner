@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 //#include "../PDM/pdm_filter.h"
 #include "arm_math.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -33,6 +34,13 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+typedef struct kalman_state {
+	float q; //process noise covariance
+	float r; //measurement noise covariance
+	float x; //estimated value
+	float p; //estimation error covariance
+	float k; // adaptive Kalman filter gain.
+} kalman_state;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -66,13 +74,38 @@ static void MX_ADC1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-int32_t data[512] = {0};
+int32_t data[256] = {0};
 int32_t data2[1] = {0};
 int32_t x= 0;
 int32_t y=0;
-int32_t fourier[512];
-
+float32_t fourier[256];
+float32_t realFFT[256];
+float32_t imagFFT[256];
+float output[256];
+float32_t mag[256];
+float32_t max = 0;
+uint32_t bruh = 0;
 arm_rfft_instance_f32 S;
+arm_cfft_radix4_instance_f32 S_CFFT;
+
+
+void kalman_c(kalman_state* kstate, float measurement)
+{
+	kstate->p = kstate->p + kstate->q;
+	kstate->k = kstate->p / (kstate->p + kstate->r);
+	kstate->x = kstate->x + kstate->k * (measurement - kstate->x);
+	kstate->p = (1 - kstate->k) * kstate->p;
+}
+
+kalman_state kalman = {
+		  .q = 0.1,
+		  .r = 0.1,
+		  .x = 5,
+		  .p = 0.1,
+		  .k = 0
+};
+
+
 /* USER CODE END 0 */
 
 /**
@@ -108,10 +141,10 @@ int main(void)
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
 
-  arm_rfft_fast_init_f32(&S, 512);
+  arm_rfft_fast_init_f32(&S, 256 );
 
-  x = HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter1, data, 512);
-  y = HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, data2, 1);
+  x = HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter1, data, 256);
+//  y = HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, data2, 1);
 
 
 
@@ -119,12 +152,24 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+
   while (1)
   {
-	 HAL_Delay(1);
-
-	 arm_rfft_fast_f32(&S,data,fourier,0);
-
+	  for(int i =0; i <256; i++){
+		  kalman_c(&kalman, data[i]);
+		  output[i] = kalman.x;
+	  }
+	  HAL_Delay(1);
+//	  y=data2[0];
+//	  arm_rfft_fast_f32(&S,(float32_t*)data,fourier,0);
+//
+//	  // de-interleave real and complex values
+//	  for (int i = 0; i < (256 / 2) - 1; i++) {
+//	    realFFT[i] = fourier[i * 2];
+//	    imagFFT[i] = fourier[(i * 2) + 1];
+//	  }
+//	  arm_cmplx_mag_f32(fourier, mag, 128);
 
 
     /* USER CODE END WHILE */
