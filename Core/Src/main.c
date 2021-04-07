@@ -22,7 +22,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "../PDM/pdm_filter.h"
+//#include "../PDM/pdm_filter.h"
+#include "arm_math.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -65,10 +66,13 @@ static void MX_ADC1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-int32_t data[1] = {0};
+int32_t data[512] = {0};
 int32_t data2[1] = {0};
 int32_t x= 0;
 int32_t y=0;
+int32_t fourier[512];
+
+arm_rfft_instance_f32 S;
 /* USER CODE END 0 */
 
 /**
@@ -104,8 +108,12 @@ int main(void)
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
 
-  x = HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter1, data, 1);
+  arm_rfft_fast_init_f32(&S, 512);
+
+  x = HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter1, data, 512);
   y = HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, data2, 1);
+
+
 
   /* USER CODE END 2 */
 
@@ -113,11 +121,9 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	 x=data[0];
 	 HAL_Delay(1);
 
-
-
+	 arm_rfft_fast_f32(&S,data,fourier,0);
 
 
 
