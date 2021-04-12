@@ -44,7 +44,8 @@ typedef struct kalman_state {
 	float k; // adaptive Kalman filter gain.
 } kalman_state;
 
-#define FFT_SIZE    1024
+#define FFT_SIZE 1024
+#define TUNING_THRESHOLD 25
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -55,12 +56,16 @@ typedef struct kalman_state {
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
 
+DAC_HandleTypeDef hdac1;
+
 DFSDM_Filter_HandleTypeDef hdfsdm1_filter0;
 DFSDM_Filter_HandleTypeDef hdfsdm1_filter1;
 DFSDM_Channel_HandleTypeDef hdfsdm1_channel1;
 DFSDM_Channel_HandleTypeDef hdfsdm1_channel2;
 DMA_HandleTypeDef hdma_dfsdm1_flt0;
 DMA_HandleTypeDef hdma_dfsdm1_flt1;
+
+TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
 
@@ -78,6 +83,8 @@ static void MX_DMA_Init(void);
 static void MX_DFSDM1_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_DAC1_Init(void);
+static void MX_TIM2_Init(void);
 void StartDefaultTask(void const * argument);
 void StartAudioSamplingTask(void const * argument);
 void StartFourierCalTask(void const * argument);
@@ -108,7 +115,6 @@ float32_t mag[FFT_SIZE/2];
 //COMPLEXE
 arm_cfft_radix4_instance_f32 CS;
 arm_status status;
-float32_t maxValue;
 uint32_t cIndex = 0;
 
 //Button
@@ -119,7 +125,16 @@ int pressed = 0;
 uint32_t utime = 0;
 uint32_t timeout = 750;
 
+// Strings
+int stringFreqs[6] = {1000, 2000, 3000, 4000, 5000, 6000};
+char* stringNames[6] = {"A", "B", "C", "D", "E", "F"};
+int currentString = 0;
+int freq;
 
+// Beeps
+int counter = 0;
+float32_t sinArray[1200];
+int beep = 0;
 
 void kalman_c(kalman_state* kstate, float measurement)
 {
@@ -172,16 +187,26 @@ int main(void)
   MX_DFSDM1_Init();
   MX_ADC1_Init();
   MX_USART1_UART_Init();
+  MX_DAC1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 
 
 
   arm_rfft_fast_init_f32(&S, FFT_SIZE);
 
+  HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
+
+  for (int i=0; i<1200; i++){
+	  sinArray[i] = 128+85*(arm_sin_f32(i*(3.14159/6)));
+  } // Populate sin array
+
+  HAL_TIM_Base_Start_IT(&htim2); // Start timer 2 in interrupt mode
+
   // User Interface
    char * welcome = (char*) malloc(sizeof(char)*500);
    memset(welcome, 0x00, 500);
-   sprintf(welcome, "This is Group 2's guitar tuner! Press blue button once to start tuning cord E. Press blue button twice to change cord.\n");
+   sprintf(welcome, "This is Group 2's guitar tuner! Press blue button once to start tuning cord E. Press blue button once to start recording, twice to change strings.\n");
    HAL_UART_Transmit(&huart1, welcome, strlen(welcome), 500);
    free(welcome);
 
@@ -383,6 +408,54 @@ static void MX_ADC1_Init(void)
 }
 
 /**
+  * @brief DAC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_DAC1_Init(void)
+{
+
+  /* USER CODE BEGIN DAC1_Init 0 */
+
+  /* USER CODE END DAC1_Init 0 */
+
+  DAC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN DAC1_Init 1 */
+
+  /* USER CODE END DAC1_Init 1 */
+  /** DAC Initialization
+  */
+  hdac1.Instance = DAC1;
+  if (HAL_DAC_Init(&hdac1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** DAC channel OUT1 config
+  */
+  sConfig.DAC_SampleAndHold = DAC_SAMPLEANDHOLD_DISABLE;
+  sConfig.DAC_Trigger = DAC_TRIGGER_T2_TRGO;
+  sConfig.DAC_HighFrequency = DAC_HIGH_FREQUENCY_INTERFACE_MODE_DISABLE;
+  sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
+  sConfig.DAC_ConnectOnChipPeripheral = DAC_CHIPCONNECT_DISABLE;
+  sConfig.DAC_UserTrimming = DAC_TRIMMING_FACTORY;
+  if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Configure Noise wave generation on DAC OUT1
+  */
+  if (HAL_DACEx_NoiseWaveGenerate(&hdac1, DAC_CHANNEL_1, DAC_LFSRUNMASK_BIT0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN DAC1_Init 2 */
+
+  /* USER CODE END DAC1_Init 2 */
+
+}
+
+/**
   * @brief DFSDM1 Initialization Function
   * @param None
   * @retval None
@@ -468,6 +541,51 @@ static void MX_DFSDM1_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 10000;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
   * @brief USART1 Initialization Function
   * @param None
   * @retval None
@@ -546,6 +664,7 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
@@ -556,29 +675,80 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(BTN_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 }
 
 /* USER CODE BEGIN 4 */
 
-void transmit(int i, int pressed){
+void userInput(int pressedTwice) {
 
-	char * random = (char*) malloc(sizeof(char)*200);
-	memset(random, 0x00, 200);
-	if (pressed){
-		sprintf(random, "pressd twice!");
-	} else{
-		sprintf(random, "pressed once!");
+	char *buffer = (char*) malloc(sizeof(char)*200);
+	memset(buffer, 0x00, 200);
+	if (pressedTwice) {
+		// switch strings
+		if (initCount > 0) {
+			currentString = (currentString + 1) % 6;
+			sprintf(buffer, "Switching to string %s.\n", stringNames[currentString]);
+			HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
+		} else {
+			initCount++;
+		}
+	} else {
+		sprintf(buffer, "About to tune string %s. When the tuner beeps, start playing the string.\n", stringNames[currentString]);
+		if (initCount > 0) {
+			HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
+			record();
+		} else {
+			initCount++;
+		}
 	}
-	if (initCount>0) {
-		HAL_UART_Transmit(&huart1, random, strlen(random), 200);
-	}
-	initCount++;
-	free(random);
+
+	free(buffer);
 }
 
+void record() {
+	char *buffer = (char*) malloc(sizeof(char)*200);
+	// 1. beep to indicate start
+	memset(buffer, 0x00, 200);
+	sprintf(buffer, "Recording started.\n");
+	HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
+	// 2. record sound (change mutex?)
+	  beep = 1;
+	  HAL_Delay(5000);
+	// 3. beep to indicate end
+	  beep = 0;
+	memset(buffer, 0x00, 200);
+	sprintf(buffer, "Recording finished.\n");
+	HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
+	// 4. get fourier transform
+	freq = 1000;
+	// 5. display result to user
+	evaluateData();
+}
+
+void evaluateData() {
+	char *buffer = (char*) malloc(sizeof(char)*200);
+	int targetFreq = stringFreqs[currentString];
+	int freqDiff = targetFreq - freq;
+	if (abs(freqDiff) < TUNING_THRESHOLD) {
+		memset(buffer, 0x00, 200);
+		sprintf(buffer, "String %s is tuned! Press twice to switch strings.\n", stringNames[currentString]);
+		HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
+	} else {
+		char* instruction;;
+		if (freqDiff < 0) {
+			instruction = "over";
+		} else {
+			instruction = "under";
+		}
+		memset(buffer, 0x00, 200);
+		sprintf(buffer, "String %s; Target frequency: %d; Your frequency: %d; You are %s the target frequency by %d Hz.\n", stringNames[currentString], targetFreq, freq, instruction, abs(freqDiff));
+		HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
+	}
+	free(buffer);
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -595,27 +765,26 @@ void StartDefaultTask(void const * argument)
 
   for(;;)
   {
-//	button_state = 1;
 	osDelay(10);
-    while(button_state){
+    while (button_state) {
     	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
     }
 
     tick = HAL_GetTick();
     utime = 0;
-    while(!button_state){
+    while (!button_state) {
         	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
     }
-    while(utime < timeout){
+    while (utime < timeout) {
     	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
-    	if (!button_state){
+    	if (!button_state) {
     		pressed = !pressed;
     		break;
     	}
     	utime = HAL_GetTick() - tick;
     }
-    transmit(0, pressed);
-    while(!button_state){
+    userInput(pressed);
+    while (!button_state) {
     	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
     }
     pressed = 0;
@@ -663,7 +832,7 @@ void StartFourierCalTask(void const * argument)
     arm_rfft_fast_f32(&S, data, fourier, 0);
     arm_cmplx_mag_f32(fourier, mag, FFT_SIZE/2);
 
-    arm_max_f32(fourier, FFT_SIZE, &maxValue, &cIndex);
+//    arm_max_f32(fourier, FFT_SIZE, &maxValue, &cIndex);
 
   }
   /* USER CODE END StartFourierCalTask */
@@ -686,6 +855,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
+  if (htim->Instance == TIM2) {
+		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_8B_R,sinArray[counter]);
+		counter = (counter + 1)%1200;
+  }
 
   /* USER CODE END Callback 1 */
 }
