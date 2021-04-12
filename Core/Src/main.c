@@ -19,11 +19,13 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 //#include "../PDM/pdm_filter.h"
 #include "arm_math.h"
+#include <string.h>
 
 /* USER CODE END Includes */
 
@@ -41,6 +43,8 @@ typedef struct kalman_state {
 	float p; //estimation error covariance
 	float k; // adaptive Kalman filter gain.
 } kalman_state;
+
+#define FFT_SIZE    1024
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -58,6 +62,11 @@ DFSDM_Channel_HandleTypeDef hdfsdm1_channel2;
 DMA_HandleTypeDef hdma_dfsdm1_flt0;
 DMA_HandleTypeDef hdma_dfsdm1_flt1;
 
+UART_HandleTypeDef huart1;
+
+osThreadId defaultTaskHandle;
+osThreadId audioSamplingHandle;
+osThreadId fourierCalculatHandle;
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -68,25 +77,48 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_DFSDM1_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_USART1_UART_Init(void);
+void StartDefaultTask(void const * argument);
+void StartAudioSamplingTask(void const * argument);
+void StartFourierCalTask(void const * argument);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-int32_t data[256] = {0};
+
 int32_t data2[1] = {0};
 int32_t x= 0;
 int32_t y=0;
-float32_t fourier[256];
 float32_t realFFT[256];
 float32_t imagFFT[256];
-float output[256];
-float32_t mag[256];
 float32_t max = 0;
 uint32_t bruh = 0;
-arm_rfft_instance_f32 S;
+
 arm_cfft_radix4_instance_f32 S_CFFT;
+
+// NOT COMPLEXE
+int32_t data[FFT_SIZE] = {0};
+arm_rfft_fast_instance_f32 S;
+float32_t fourier[FFT_SIZE];
+float32_t mag[FFT_SIZE/2];
+
+//COMPLEXE
+arm_cfft_radix4_instance_f32 CS;
+arm_status status;
+float32_t maxValue;
+uint32_t cIndex = 0;
+
+//Button
+GPIO_PinState button_state;
+int initCount=0;
+uint32_t tick;
+int pressed = 0;
+uint32_t utime = 0;
+uint32_t timeout = 750;
+
 
 
 void kalman_c(kalman_state* kstate, float measurement)
@@ -139,28 +171,78 @@ int main(void)
   MX_DMA_Init();
   MX_DFSDM1_Init();
   MX_ADC1_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
-  arm_rfft_fast_init_f32(&S, 256 );
 
-  x = HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter1, data, 256);
-//  y = HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, data2, 1);
 
+  arm_rfft_fast_init_f32(&S, FFT_SIZE);
+
+  // User Interface
+   char * welcome = (char*) malloc(sizeof(char)*500);
+   memset(welcome, 0x00, 500);
+   sprintf(welcome, "This is Group 2's guitar tuner! Press blue button once to start tuning cord E. Press blue button twice to change cord.\n");
+   HAL_UART_Transmit(&huart1, welcome, strlen(welcome), 500);
+   free(welcome);
 
 
   /* USER CODE END 2 */
 
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* definition and creation of defaultTask */
+  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
+  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
+
+  /* definition and creation of audioSampling */
+  osThreadDef(audioSampling, StartAudioSamplingTask, osPriorityNormal, 0, 128);
+  audioSamplingHandle = osThreadCreate(osThread(audioSampling), NULL);
+
+  /* definition and creation of fourierCalculat */
+  osThreadDef(fourierCalculat, StartFourierCalTask, osPriorityNormal, 0, 128);
+  fourierCalculatHandle = osThreadCreate(osThread(fourierCalculat), NULL);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
 
   while (1)
   {
-	  for(int i =0; i <256; i++){
-		  kalman_c(&kalman, data[i]);
-		  output[i] = kalman.x;
-	  }
-	  HAL_Delay(1);
+	  HAL_Delay(200);
+
+
+	  //	  HAL_DFSDM_FilterRegularStart(&hdfsdm1_filter1);
+
+	  //	  for(int i =0; i <256; i++){
+	  //		  y = data[i];
+	  //		  kalman_c(&kalman, data[i]);
+	  //		  output[i] = kalman.x;
+	  //	  }
+
+
 //	  y=data2[0];
 //	  arm_rfft_fast_f32(&S,(float32_t*)data,fourier,0);
 //
@@ -226,7 +308,9 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_DFSDM1|RCC_PERIPHCLK_ADC;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART1|RCC_PERIPHCLK_DFSDM1
+                              |RCC_PERIPHCLK_ADC;
+  PeriphClkInit.Usart1ClockSelection = RCC_USART1CLKSOURCE_PCLK2;
   PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_PLLSAI1;
   PeriphClkInit.Dfsdm1ClockSelection = RCC_DFSDM1CLKSOURCE_PCLK;
   PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_MSI;
@@ -338,7 +422,7 @@ static void MX_DFSDM1_Init(void)
   hdfsdm1_channel1.Instance = DFSDM1_Channel1;
   hdfsdm1_channel1.Init.OutputClock.Activation = ENABLE;
   hdfsdm1_channel1.Init.OutputClock.Selection = DFSDM_CHANNEL_OUTPUT_CLOCK_SYSTEM;
-  hdfsdm1_channel1.Init.OutputClock.Divider = 39;
+  hdfsdm1_channel1.Init.OutputClock.Divider = 78;
   hdfsdm1_channel1.Init.Input.Multiplexer = DFSDM_CHANNEL_EXTERNAL_INPUTS;
   hdfsdm1_channel1.Init.Input.DataPacking = DFSDM_CHANNEL_STANDARD_MODE;
   hdfsdm1_channel1.Init.Input.Pins = DFSDM_CHANNEL_FOLLOWING_CHANNEL_PINS;
@@ -355,7 +439,7 @@ static void MX_DFSDM1_Init(void)
   hdfsdm1_channel2.Instance = DFSDM1_Channel2;
   hdfsdm1_channel2.Init.OutputClock.Activation = ENABLE;
   hdfsdm1_channel2.Init.OutputClock.Selection = DFSDM_CHANNEL_OUTPUT_CLOCK_SYSTEM;
-  hdfsdm1_channel2.Init.OutputClock.Divider = 39;
+  hdfsdm1_channel2.Init.OutputClock.Divider = 78;
   hdfsdm1_channel2.Init.Input.Multiplexer = DFSDM_CHANNEL_EXTERNAL_INPUTS;
   hdfsdm1_channel2.Init.Input.DataPacking = DFSDM_CHANNEL_STANDARD_MODE;
   hdfsdm1_channel2.Init.Input.Pins = DFSDM_CHANNEL_SAME_CHANNEL_PINS;
@@ -384,6 +468,54 @@ static void MX_DFSDM1_Init(void)
 }
 
 /**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart1.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart1, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart1, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_DisableFifoMode(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -395,10 +527,10 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA1_Channel1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
   /* DMA1_Channel2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
 
 }
@@ -410,16 +542,132 @@ static void MX_DMA_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOE_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin : BTN_Pin */
+  GPIO_InitStruct.Pin = BTN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(BTN_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 }
 
 /* USER CODE BEGIN 4 */
 
+void transmit(int i, int pressed){
+
+	char * random = (char*) malloc(sizeof(char)*200);
+	memset(random, 0x00, 200);
+	if (pressed){
+		sprintf(random, "pressd twice!");
+	} else{
+		sprintf(random, "pressed once!");
+	}
+	if (initCount>0) {
+		HAL_UART_Transmit(&huart1, random, strlen(random), 200);
+	}
+	initCount++;
+	free(random);
+}
+
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+  * @brief  Function implementing the defaultTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void const * argument)
+{
+  /* USER CODE BEGIN 5 */
+  /* Infinite loop */
+
+  for(;;)
+  {
+//	button_state = 1;
+	osDelay(10);
+    while(button_state){
+    	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
+    }
+
+    tick = HAL_GetTick();
+    utime = 0;
+    while(!button_state){
+        	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
+    }
+    while(utime < timeout){
+    	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
+    	if (!button_state){
+    		pressed = !pressed;
+    		break;
+    	}
+    	utime = HAL_GetTick() - tick;
+    }
+    transmit(0, pressed);
+    while(!button_state){
+    	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
+    }
+    pressed = 0;
+
+  }
+  /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StartAudioSamplingTask */
+/**
+* @brief Function implementing the audioSampling thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartAudioSamplingTask */
+void StartAudioSamplingTask(void const * argument)
+{
+  /* USER CODE BEGIN StartAudioSamplingTask */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+    x = HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter1, data, FFT_SIZE);
+
+    //Incorporate mutex or semaphore to stop execution while calculating fourier transform
+  }
+  /* USER CODE END StartAudioSamplingTask */
+}
+
+/* USER CODE BEGIN Header_StartFourierCalTask */
+/**
+* @brief Function implementing the fourierCalculat thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartFourierCalTask */
+void StartFourierCalTask(void const * argument)
+{
+  /* USER CODE BEGIN StartFourierCalTask */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+
+    arm_rfft_fast_f32(&S, data, fourier, 0);
+    arm_cmplx_mag_f32(fourier, mag, FFT_SIZE/2);
+
+    arm_max_f32(fourier, FFT_SIZE, &maxValue, &cIndex);
+
+  }
+  /* USER CODE END StartFourierCalTask */
+}
 
  /**
   * @brief  Period elapsed callback in non blocking mode
