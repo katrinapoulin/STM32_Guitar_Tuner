@@ -120,6 +120,7 @@ GPIO_PinState button_state;
 int initCount=0;
 uint32_t tick;
 int pressed = 0;
+int buttonInterrupt = 0;
 uint32_t utime = 0;
 uint32_t timeout = 750;
 
@@ -664,7 +665,9 @@ void userInput(int pressedTwice) {
 
 	char *buffer = (char*) malloc(sizeof(char)*200);
 	memset(buffer, 0x00, 200);
-	if (pressedTwice) {
+    if (pressedTwice == -1){
+
+	} else if (pressedTwice ==  1) {
 		// switch strings
 		if (initCount > 0) {
 			currentString = (currentString + 1) % 6;
@@ -687,17 +690,14 @@ void userInput(int pressedTwice) {
 }
 
 void record() {
+	int freqDiff = -30000;
 	tuning = 1;
 	while(tuning) {
-//		button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
-//		if (!button_state) {
-//			tuning = 0;
-//		}
-		evaluateData();
+		freqDiff = evaluateData(freqDiff);
 	}
 }
 
-void evaluateData() {
+int evaluateData(int pFD) {
 	char *buffer = (char*) malloc(sizeof(char)*200);
 	int targetFreq = stringFreqs[currentString];
 	int freqDiff = targetFreq - freq;
@@ -707,7 +707,7 @@ void evaluateData() {
 		HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
 		tuning = 0;
 		freq = 0;
-	} else {
+	} else if (pFD != freqDiff) {
 		char* instruction;
 		if (abs(freqDiff) < 5) {
 			instruction = "a little";
@@ -726,13 +726,15 @@ void evaluateData() {
 		HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
 	}
 	free(buffer);
+	return freqDiff;
 }
 
 void clr() {
 	char buff[5];
-	sprintf(buff, "%c[2J", 33);
+	sprintf(buff, "%c[2J", 32);
 	HAL_UART_Transmit(&huart1, &buff, sizeof(buff), 200);
 }
+
 
 /* USER CODE END 4 */
 
@@ -754,8 +756,9 @@ void StartDefaultTask(void const * argument)
 	button_state = 1;
     while (button_state) {
     	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
+    	buttonInterrupt= 0;
     }
-
+    buttonInterrupt = 1;
     if (tuning) {
     	tuning = 0;
     	freq = 0;
@@ -770,6 +773,7 @@ void StartDefaultTask(void const * argument)
     	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
     	if (!button_state) {
     		pressed = !pressed;
+    		buttonInterrupt = 2;
             while (!button_state) {
             	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
             }
@@ -777,8 +781,6 @@ void StartDefaultTask(void const * argument)
     	}
     	utime = HAL_GetTick() - tick;
     }
-
-    userInput(pressed);
     pressed = 0;
 
   }
@@ -850,6 +852,10 @@ void StartFourierCalTask(void const * argument)
   for(;;)
   {
     osDelay(1);
+    while(buttonInterrupt != 0){
+    	 userInput(pressed);
+    }
+
 
   }
   /* USER CODE END StartFourierCalTask */
