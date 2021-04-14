@@ -125,7 +125,8 @@ uint32_t timeout = 750;
 
 // Strings
 //int stringFreqs[6] = {83, 56, 74, 100, 252, 168}; // Hassan's guitar
-int stringFreqs[6] = {126, 168, 91, 100, 252, 168}; // YT video
+int stringFreqs[6] = {83, 56, 74, 100, 126, 168}; // alixe's guitar
+//int stringFreqs[6] = {126, 168, 91, 100, 252, 168}; // YT video
 char* stringNames[6] = {"Low-E", "A", "D", "G", "B", "High-E"};
 int currentString = 0;
 
@@ -688,7 +689,9 @@ void userInput(int pressedTwice) {
 void record() {
 	tuning = 1;
 	while(tuning) {
-	evaluateData();
+		evaluateData();
+		button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
+		if (button_state == 0) tuning = 0;
 	}
 }
 
@@ -696,21 +699,28 @@ void evaluateData() {
 	char *buffer = (char*) malloc(sizeof(char)*200);
 	int targetFreq = stringFreqs[currentString];
 	int freqDiff = targetFreq - freq;
-	if (abs(freqDiff) < TUNING_THRESHOLD) {
+	if (abs(freqDiff) <= TUNING_THRESHOLD) {
 		memset(buffer, 0x00, 200);
 		sprintf(buffer, "String %s is tuned! Press twice to switch strings.\n", stringNames[currentString]);
 		HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
 		tuning = 0;
+		freq = 0;
 	} else {
 		char* instruction;
-		if (freqDiff < 0) {
-			instruction = "over";
+		if (abs(freqDiff) < 5) {
+			instruction = "a little";
 		} else {
-			instruction = "under";
+			instruction = "a lot";
+		}
+		char * action;
+		if (freqDiff > 0){
+			action = "Tighten";
+		} else {
+			action = "Loosen";
 		}
 //		clr();
 		memset(buffer, 0x00, 200);
-		sprintf(buffer, "String %s; Target frequency: %d; Your frequency: %d; You are %s the target frequency by %d Hz.\n", stringNames[currentString], targetFreq, freq, instruction, abs(freqDiff));
+		sprintf(buffer, "Tuning String %s. You are %dHz off your target frequency. %s your string by %s\n", stringNames[currentString], abs(freqDiff), action ,instruction);
 		HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
 	}
 	free(buffer);
@@ -743,6 +753,11 @@ void StartDefaultTask(void const * argument)
     	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
     }
 
+    if (tuning){
+    	tuning =0;
+    	freq = 0;
+     	recording = 0;
+    }
     tick = HAL_GetTick();
     utime = 0;
     while (!button_state) {
@@ -805,7 +820,7 @@ void StartAudioSamplingTask(void const * argument)
 
 			  arm_max_q31(data, RAW_SIZE, &max_ft, &freq);
 
-			  osDelay(50);
+			  osDelay(20);
 
 			  // TODO: process
 		  }
@@ -832,11 +847,6 @@ void StartFourierCalTask(void const * argument)
   for(;;)
   {
     osDelay(1);
-//
-//    arm_rfft_fast_f32(&S, data, fourier, 0);
-//    arm_cmplx_mag_f32(fourier, mag, FFT_SIZE/2);
-//
-////    arm_max_f32(fourier, FFT_SIZE, &maxValue, &cIndex);
 
   }
   /* USER CODE END StartFourierCalTask */
