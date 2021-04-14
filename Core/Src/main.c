@@ -689,9 +689,11 @@ void userInput(int pressedTwice) {
 void record() {
 	tuning = 1;
 	while(tuning) {
+//		button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
+//		if (!button_state) {
+//			tuning = 0;
+//		}
 		evaluateData();
-		button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
-		if (button_state == 0) tuning = 0;
 	}
 }
 
@@ -749,12 +751,13 @@ void StartDefaultTask(void const * argument)
   for(;;)
   {
 	osDelay(10);
+	button_state = 1;
     while (button_state) {
     	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
     }
 
-    if (tuning){
-    	tuning =0;
+    if (tuning) {
+    	tuning = 0;
     	freq = 0;
      	recording = 0;
     }
