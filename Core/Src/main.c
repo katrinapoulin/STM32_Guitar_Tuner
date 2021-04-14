@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "arm_math.h"
+#include <stdlib.h>
 #include <string.h>
 
 /* USER CODE END Includes */
@@ -44,55 +45,9 @@ typedef struct kalman_state {
 } kalman_state;
 
 #define FFT_SIZE 1024
-#define TUNING_THRESHOLD 25
-#define RAW_SIZE 2048
+#define TUNING_THRESHOLD 1
+#define RAW_SIZE 512
 
-unsigned char __697hz_raw[] = {
-  0x00, 0x00, 0x4d, 0x35, 0x04, 0x5b, 0x24, 0x66, 0x67, 0x53, 0x4e, 0x28,
-  0x68, 0xf1, 0xcd, 0xbe, 0x36, 0x9f, 0xf5, 0x9b, 0xe6, 0xb5, 0x87, 0xe5,
-  0xe1, 0x1c, 0xca, 0x4b, 0x8e, 0x64, 0xf0, 0x5f, 0x43, 0x3f, 0x1f, 0x0c,
-  0x6b, 0xd5, 0x2d, 0xab, 0xb5, 0x99, 0x29, 0xa6, 0xd6, 0xcc, 0x80, 0x02,
-  0x69, 0x37, 0x22, 0x5c, 0xee, 0x65, 0xf0, 0x51, 0xfe, 0x25, 0xf4, 0xee,
-  0xe2, 0xbc, 0x71, 0x9e, 0x81, 0x9c, 0xa6, 0xb7, 0xf2, 0xe7, 0x3f, 0x1f,
-  0x76, 0x4d, 0xfd, 0x64, 0x09, 0x5f, 0x4a, 0x3d, 0xa3, 0x09, 0x2a, 0xd3,
-  0xcd, 0xa9, 0xa2, 0x99, 0x5c, 0xa7, 0x0b, 0xcf, 0xf6, 0x04, 0x82, 0x39,
-  0x2f, 0x5d, 0xab, 0x65, 0x6a, 0x50, 0xac, 0x23, 0x7e, 0xec, 0x07, 0xbb,
-  0xb5, 0x9d, 0x20, 0x9d, 0x71, 0xb9, 0x5b, 0xea, 0xa5, 0x21, 0x08, 0x4f,
-  0x67, 0x65, 0x0e, 0x5e, 0x49, 0x3b, 0x27, 0x07, 0xef, 0xd0, 0x7c, 0xa8,
-  0x99, 0x99, 0xa6, 0xa8, 0x3a, 0xd1, 0x79, 0x07, 0x89, 0x3b, 0x33, 0x5e,
-  0x56, 0x65, 0xd8, 0x4e, 0x53, 0x21, 0x0e, 0xea, 0x34, 0xb9, 0x0a, 0x9d,
-  0xce, 0x9d, 0x41, 0xbb, 0xd2, 0xec, 0xf7, 0x23, 0x9e, 0x50, 0xb4, 0x65,
-  0x0d, 0x5d, 0x3c, 0x39, 0xa8, 0x04, 0xbe, 0xce, 0x37, 0xa7, 0xa0, 0x99,
-  0xfc, 0xa9, 0x73, 0xd3, 0xf6, 0x09, 0x8d, 0x3d, 0x24, 0x5f, 0xf4, 0x64,
-  0x3b, 0x4d, 0xf5, 0x1e, 0xa0, 0xe7, 0x6b, 0xb7, 0x6f, 0x9c, 0x8a, 0x9e,
-  0x20, 0xbd, 0x47, 0xef, 0x46, 0x26, 0x27, 0x52, 0xf1, 0x65, 0x01, 0x5c,
-  0x23, 0x37, 0x2b, 0x02, 0x94, 0xcc, 0xfc, 0xa5, 0xbd, 0x99, 0x58, 0xab,
-  0xb9, 0xd5, 0x6d, 0x0c, 0x88, 0x3f, 0x09, 0x60, 0x80, 0x64, 0x93, 0x4b,
-  0x91, 0x1c, 0x36, 0xe5, 0xb2, 0xb5, 0xdc, 0x9b, 0x5a, 0x9f, 0x05, 0xbf,
-  0xbe, 0xf1, 0x98, 0x28, 0x96, 0x53, 0x2c, 0x66, 0xdc, 0x5a, 0x09, 0x35,
-  0xab, 0xff, 0x6f, 0xca, 0xd5, 0xa4, 0xe2, 0x99, 0xca, 0xac, 0xfc, 0xd7,
-  0xeb, 0x0e, 0x73, 0x41, 0xe2, 0x60, 0xfd, 0x63, 0xde, 0x49, 0x2b, 0x1a,
-  0xd1, 0xe2, 0xfe, 0xb3, 0x61, 0x9b, 0x31, 0xa0, 0xf8, 0xc0, 0x39, 0xf4,
-  0xdb, 0x2a, 0x05, 0x55, 0x4b, 0x66, 0xb2, 0x59, 0xe2, 0x32, 0x2d, 0xfd,
-  0x53, 0xc8, 0xb9, 0xa3, 0x1a, 0x9a, 0x43, 0xae, 0x4d, 0xda, 0x5e, 0x11,
-  0x5b, 0x43, 0xa8, 0x61, 0x6d, 0x63, 0x1d, 0x48, 0xc3, 0x17, 0x6a, 0xe0,
-  0x5d, 0xb2, 0xef, 0x9a, 0x1a, 0xa1, 0xf6, 0xc2, 0xb0, 0xf6, 0x1f, 0x2d,
-  0x5f, 0x56, 0x62, 0x66, 0x76, 0x58, 0xb4, 0x30, 0xb1, 0xfa, 0x3d, 0xc6,
-  0xaf, 0xa2, 0x5d, 0x9a, 0xcc, 0xaf, 0x9f, 0xdc, 0xd5, 0x13, 0x34, 0x45,
-  0x63, 0x62, 0xc9, 0x62, 0x56, 0x46, 0x51, 0x15, 0x12, 0xde, 0xbe, 0xb0,
-  0x93, 0x9a, 0x10, 0xa2, 0xf9, 0xc4, 0x30, 0xf9, 0x54, 0x2f, 0xb3, 0x57,
-  0x65, 0x66, 0x2e, 0x57, 0x80, 0x2e, 0x32, 0xf8, 0x35, 0xc4, 0xac, 0xa1,
-  0xb6, 0x9a, 0x5d, 0xb1, 0xfb, 0xde, 0x42, 0x16, 0x08, 0x47, 0x0b, 0x63,
-  0x19, 0x62, 0x84, 0x44, 0xda, 0x12, 0xc0, 0xdb, 0x2b, 0xaf, 0x48, 0x9a,
-  0x0e, 0xa3, 0x0f, 0xc7, 0xa6, 0xfb, 0x8c, 0x31, 0xf3, 0x58, 0x5a, 0x66,
-  0xdc, 0x55, 0x3e, 0x2c, 0xbc, 0xf5, 0x2f, 0xc2, 0xbe, 0xa0, 0x1c, 0x9b,
-  0xf9, 0xb2, 0x5c, 0xe1, 0xad, 0x18, 0xd0, 0x48, 0xa4, 0x63, 0x5f, 0x61,
-  0x9d, 0x42, 0x6e, 0x10, 0x66, 0xd9, 0xaf, 0xad, 0x03, 0x9a, 0x25, 0xa4,
-  0x22, 0xc9, 0x28, 0xfe, 0xb4, 0x33, 0x29, 0x5a, 0x41, 0x66, 0x76, 0x54,
-  0x00, 0x2a, 0x3e, 0xf3, 0x3a, 0xc0, 0xd9, 0x9f, 0x90, 0x9b, 0xa6, 0xb4,
-  0xbc, 0xe3, 0x1a, 0x1b, 0x8a, 0x4a, 0x2e, 0x64
-};
-unsigned int __697hz_raw_len = 512;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -148,23 +103,17 @@ int32_t data2[1] = {0};
 int32_t x= 0;
 int32_t y=0;
 q31_t fourier[FFT_SIZE];
-q31_t fourier_sorted[FFT_SIZE];
-float32_t realFFT[256];
-float32_t imagFFT[256];
-int32_t sin2[RAW_SIZE];
-float output[256];
-float32_t mag[256];
 float32_t max = 0;
-uint32_t bruh = 0;
 
 arm_rfft_instance_q31 S;
 arm_rfft_fast_instance_f32 F;
 arm_cfft_radix4_instance_f32 S_CFFT;
 int sample_count = 0;
 int recording = 0;
+int tuning = 0;
 
 q31_t max_ft = 0;
-uint32_t pIndex = 0;
+uint32_t freq = 0;
 
 //Button
 GPIO_PinState button_state;
@@ -175,10 +124,10 @@ uint32_t utime = 0;
 uint32_t timeout = 750;
 
 // Strings
-int stringFreqs[6] = {1000, 2000, 3000, 4000, 5000, 6000};
-char* stringNames[6] = {"A", "B", "C", "D", "E", "F"};
+//int stringFreqs[6] = {83, 56, 74, 100, 252, 168}; // Hassan's guitar
+int stringFreqs[6] = {126, 168, 91, 100, 252, 168}; // YT video
+char* stringNames[6] = {"Low-E", "A", "D", "G", "B", "High-E"};
 int currentString = 0;
-int freq;
 
 // Beeps
 int counter = 0;
@@ -242,7 +191,7 @@ int main(void)
 
 
 
-  arm_rfft_init_q31(&S, FFT_SIZE, 0, 1);
+  arm_rfft_init_q31(&S, RAW_SIZE, 0, 1);
 
   HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
 
@@ -306,28 +255,6 @@ int main(void)
 
   while (1)
   {
-	  HAL_Delay(200);
-
-
-	  //	  HAL_DFSDM_FilterRegularStart(&hdfsdm1_filter1);
-
-	  //	  for(int i =0; i <256; i++){
-	  //		  y = data[i];
-	  //		  kalman_c(&kalman, data[i]);
-	  //		  output[i] = kalman.x;
-	  //	  }
-
-
-//	  y=data2[0];
-//	  arm_rfft_fast_f32(&S,(float32_t*)data,fourier,0);
-//
-//	  // de-interleave real and complex values
-//	  for (int i = 0; i < (256 / 2) - 1; i++) {
-//	    realFFT[i] = fourier[i * 2];
-//	    imagFFT[i] = fourier[(i * 2) + 1];
-//	  }
-//	  arm_cmplx_mag_f32(fourier, mag, 128);
-
 
     /* USER CODE END WHILE */
 
@@ -746,7 +673,7 @@ void userInput(int pressedTwice) {
 			initCount++;
 		}
 	} else {
-		sprintf(buffer, "About to tune string %s. When the tuner beeps, start playing the string.\n", stringNames[currentString]);
+		sprintf(buffer, "About to tune string %s.", stringNames[currentString]);
 		if (initCount > 0) {
 			HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
 			record();
@@ -759,23 +686,10 @@ void userInput(int pressedTwice) {
 }
 
 void record() {
-	char *buffer = (char*) malloc(sizeof(char)*200);
-	// 1. beep to indicate start
-	memset(buffer, 0x00, 200);
-	sprintf(buffer, "Recording started.\n");
-	HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
-	// 2. record sound (change mutex?)
-	  beep = 1;
-	  HAL_Delay(5000);
-	// 3. beep to indicate end
-	  beep = 0;
-	memset(buffer, 0x00, 200);
-	sprintf(buffer, "Recording finished.\n");
-	HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
-	// 4. get fourier transform
-	freq = 1000;
-	// 5. display result to user
+	tuning = 1;
+	while(tuning) {
 	evaluateData();
+	}
 }
 
 void evaluateData() {
@@ -786,19 +700,28 @@ void evaluateData() {
 		memset(buffer, 0x00, 200);
 		sprintf(buffer, "String %s is tuned! Press twice to switch strings.\n", stringNames[currentString]);
 		HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
+		tuning = 0;
 	} else {
-		char* instruction;;
+		char* instruction;
 		if (freqDiff < 0) {
 			instruction = "over";
 		} else {
 			instruction = "under";
 		}
+//		clr();
 		memset(buffer, 0x00, 200);
 		sprintf(buffer, "String %s; Target frequency: %d; Your frequency: %d; You are %s the target frequency by %d Hz.\n", stringNames[currentString], targetFreq, freq, instruction, abs(freqDiff));
 		HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
 	}
 	free(buffer);
 }
+
+void clr() {
+	char buff[5];
+	sprintf(buff, "%c[2J", 33);
+	HAL_UART_Transmit(&huart1, &buff, sizeof(buff), 200);
+}
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -829,14 +752,15 @@ void StartDefaultTask(void const * argument)
     	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
     	if (!button_state) {
     		pressed = !pressed;
+            while (!button_state) {
+            	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
+            }
     		break;
     	}
     	utime = HAL_GetTick() - tick;
     }
+
     userInput(pressed);
-    while (!button_state) {
-    	button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
-    }
     pressed = 0;
 
   }
@@ -856,40 +780,37 @@ void StartAudioSamplingTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
-	  if (recording && sample_count < RAW_SIZE)
-	  {
-		  data[sample_count] = data2[0];
-		  sample_count++;
-	  } else if (data2[0] - x  >= 20000000)
-	  {
-		  recording = 1;
-	  }
-
-	  else if (sample_count >= RAW_SIZE){
-		  sample_count = 0;
-		  recording = 0;
-
-		  arm_rfft_q31(&S, (q31_t*)data, fourier);
-		  arm_abs_q31(fourier, fourier, FFT_SIZE);
-
-		  for (int i = 2; i < FFT_SIZE; i++)
+	    osDelay(1);
+		  if (recording && tuning && sample_count < RAW_SIZE)
 		  {
-			  fourier[i-2] = fourier[i];
+			  data[sample_count] = data2[0];
+			  sample_count++;
+		  } else if (data2[0] - x  >= 20000000 && tuning)
+		  {
+			  recording = 1;
 		  }
 
-		  arm_max_q31(fourier, FFT_SIZE, &max_ft, &pIndex);
+		  else if (sample_count >= RAW_SIZE){
+			  sample_count = 0;
+			  recording = 0;
 
-//			  arm_rfft_fast_f32(&F, data, fourier, 0);
-//			  int res[FFT_SIZE];
-//			  arm_max_f32(fourier, FFT_SIZE, &max_ft, &pIndex);
+			  arm_rfft_q31(&S, (q31_t*)data, fourier);
 
+			  for (int i = 2; i < FFT_SIZE; i++)
+			  {
+				  fourier[i-2] = fourier[i];
+			  }
 
+			  arm_cmplx_mag_q31(fourier, data, RAW_SIZE);
 
-		  // TODO: process
-	  }
+			  arm_max_q31(data, RAW_SIZE, &max_ft, &freq);
 
-	  x=data2[0];
+			  osDelay(50);
+
+			  // TODO: process
+		  }
+
+		  x=data2[0];
 //    x = HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter1, data, FFT_SIZE);
 
     //Incorporate mutex or semaphore to stop execution while calculating fourier transform
@@ -938,44 +859,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
-//  if (htim->Instance == TIM2) {
-////		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_8B_R,sinArray[counter]);
-////		counter = (counter + 1)%1200;
-//
-//		  if (recording && sample_count < RAW_SIZE)
-//		  {
-//			  data[sample_count] = data2[0];
-//			  sample_count++;
-//		  } else if (data2[0] - x  >= 40000000)
-//		  {
-//			  recording = 1;
-//		  }
-//
-//		  else if (sample_count >= RAW_SIZE){
-//			  sample_count = 0;
-//			  recording = 0;
-//
-//			  arm_rfft_q31(&S, (q31_t*)data, fourier);
-//			  arm_abs_q31(fourier, fourier, FFT_SIZE);
-//
-//			  for (int i = 2; i < FFT_SIZE; i++)
-//			  {
-//				  fourier[i-2] = fourier[i];
-//			  }
-//
-//			  arm_max_q31(fourier, FFT_SIZE, &max_ft, &pIndex);
-//
-////			  arm_rfft_fast_f32(&F, data, fourier, 0);
-////			  int res[FFT_SIZE];
-////			  arm_max_f32(fourier, FFT_SIZE, &max_ft, &pIndex);
-//
-//
-//
-//			  // TODO: process
-//		  }
-//
-//		  x=data2[0];
-//  }
 
   /* USER CODE END Callback 1 */
 }
