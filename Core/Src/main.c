@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "arm_math.h"
+#include "stdlib.h"
 #include <string.h>
 
 /* USER CODE END Includes */
@@ -45,7 +46,7 @@ typedef struct kalman_state {
 
 #define FFT_SIZE 1024
 #define TUNING_THRESHOLD 25
-#define RAW_SIZE 2048
+#define RAW_SIZE 512
 
 unsigned char __697hz_raw[] = {
   0x00, 0x00, 0x4d, 0x35, 0x04, 0x5b, 0x24, 0x66, 0x67, 0x53, 0x4e, 0x28,
@@ -148,14 +149,7 @@ int32_t data2[1] = {0};
 int32_t x= 0;
 int32_t y=0;
 q31_t fourier[FFT_SIZE];
-q31_t fourier_sorted[FFT_SIZE];
-float32_t realFFT[256];
-float32_t imagFFT[256];
-int32_t sin2[RAW_SIZE];
-float output[256];
-float32_t mag[256];
 float32_t max = 0;
-uint32_t bruh = 0;
 
 arm_rfft_instance_q31 S;
 arm_rfft_fast_instance_f32 F;
@@ -182,7 +176,6 @@ int freq;
 
 // Beeps
 int counter = 0;
-float32_t sinArray[1200];
 int beep = 0;
 
 void kalman_c(kalman_state* kstate, float measurement)
@@ -242,14 +235,11 @@ int main(void)
 
 
 
-  arm_rfft_init_q31(&S, FFT_SIZE, 0, 1);
+  arm_rfft_init_q31(&S, RAW_SIZE, 0, 1);
 
   HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
 
   y = HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, data2, 1);
-  for (int i=0; i<1200; i++){
-	  sinArray[i] = 128+85*(arm_sin_f32(i*(3.14159/6)));
-  } // Populate sin array
 
   HAL_TIM_Base_Start_IT(&htim2); // Start timer 2 in interrupt mode
 
@@ -871,20 +861,21 @@ void StartAudioSamplingTask(void const * argument)
 		  recording = 0;
 
 		  arm_rfft_q31(&S, (q31_t*)data, fourier);
-		  arm_abs_q31(fourier, fourier, FFT_SIZE);
 
 		  for (int i = 2; i < FFT_SIZE; i++)
 		  {
 			  fourier[i-2] = fourier[i];
 		  }
 
-		  arm_max_q31(fourier, FFT_SIZE, &max_ft, &pIndex);
+		  arm_cmplx_mag_q31(fourier, data, RAW_SIZE);
+
+		  arm_max_q31(data, RAW_SIZE, &max_ft, &pIndex);
 
 //			  arm_rfft_fast_f32(&F, data, fourier, 0);
 //			  int res[FFT_SIZE];
 //			  arm_max_f32(fourier, FFT_SIZE, &max_ft, &pIndex);
 
-
+		  osDelay(1000);
 
 		  // TODO: process
 	  }
