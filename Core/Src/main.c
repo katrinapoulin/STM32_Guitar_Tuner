@@ -81,7 +81,6 @@ static void MX_DAC1_Init(void);
 static void MX_TIM2_Init(void);
 void StartDefaultTask(void const * argument);
 void StartAudioSamplingTask(void const * argument);
-void StartFourierCalTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -201,10 +200,6 @@ int main(void)
 	/* definition and creation of audioSampling */
 	osThreadDef(audioSampling, StartAudioSamplingTask, osPriorityNormal, 0, 128);
 	audioSamplingHandle = osThreadCreate(osThread(audioSampling), NULL);
-
-	/* definition and creation of fourierCalculat */
-	osThreadDef(fourierCalculat, StartFourierCalTask, osPriorityNormal, 0, 128);
-	fourierCalculatHandle = osThreadCreate(osThread(fourierCalculat), NULL);
 
 	/* USER CODE BEGIN RTOS_THREADS */
 	/* add threads, ... */
@@ -846,25 +841,6 @@ void StartAudioSamplingTask(void const * argument)
 
 	}
 	/* USER CODE END StartAudioSamplingTask */
-}
-
-/* USER CODE BEGIN Header_StartFourierCalTask */
-/**
- * @brief Function implementing the fourierCalculat thread.
- * @param argument: Not used
- * @retval None
- */
-/* USER CODE END Header_StartFourierCalTask */
-void StartFourierCalTask(void const * argument)
-{
-	/* USER CODE BEGIN StartFourierCalTask */
-	/* Infinite loop */
-	for(;;)
-	{
-
-
-	}
-	/* USER CODE END StartFourierCalTask */
 }
 
 /**
