@@ -36,14 +36,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-typedef struct kalman_state {
-	float q; //process noise covariance
-	float r; //measurement noise covariance
-	float x; //estimated value
-	float p; //estimation error covariance
-	float k; // adaptive Kalman filter gain.
-} kalman_state;
-
 #define FFT_SIZE 1024
 #define TUNING_THRESHOLD 1
 #define RAW_SIZE 512
@@ -100,24 +92,25 @@ void StartFourierCalTask(void const * argument);
 
 int32_t data[RAW_SIZE] = {0};
 int32_t data2[1] = {0};
-int32_t x= 0;
+int32_t x= 0; // for SWV graphing
 q31_t fourier[FFT_SIZE];
 
-arm_rfft_instance_q31 S;
+arm_rfft_instance_q31 S; // instance for complex calculations
 
+// fft calculation-related variables
 int sample_count = 0;
 int recording = 0;
-int tuning = 0;
-
 q31_t max_ft = 0;
 uint32_t freq = 0;
+
+// state of the tuner
+int tuning = 0;
 
 //Button
 GPIO_PinState button_state;
 int initCount=0;
 uint32_t tick;
 int pressed = 0;
-int buttonInterrupt = 0;
 uint32_t utime = 0;
 uint32_t timeout = 750;
 
@@ -169,8 +162,6 @@ int main(void)
 
 
 	arm_rfft_init_q31(&S, RAW_SIZE, 0, 1);
-
-	HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
 
 	HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, data2, 1);
 
@@ -633,25 +624,34 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+/*
+ * userInput() takes action on a single or double button press.
+ * If button is pressed once, start recording/tuning.
+ * If button is pressed twice, switch string to tune.
+ */
 void userInput(int pressedTwice) {
-
+	// buffer for USART output
 	char *buffer = (char*) malloc(sizeof(char)*200);
 	memset(buffer, 0x00, 200);
 
 	if (pressedTwice ==  1) {
 		// switch strings
 		if (initCount > 0) {
+			// increment string counter
 			currentString = (currentString + 1) % 6;
+
+			// user interface
 			sprintf(buffer, "Switching to string %s.\n", stringNames[currentString]);
 			HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
 		} else {
 			initCount++;
 		}
+		// if the button is only pressed once, then we start the tuning process.
 	} else {
 		sprintf(buffer, "About to tune string %s.", stringNames[currentString]);
 		if (initCount > 0) {
 			HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
-			record();
+			record(); // start recording
 		} else {
 			initCount++;
 		}
@@ -660,17 +660,23 @@ void userInput(int pressedTwice) {
 	free(buffer);
 }
 
+/*
+ * record() starts the frequency detection and prints to the user how tuned the selected string is.
+ * Returns when tuning is set to 0, either by pressing button or if string is tuned
+ */
 void record() {
+	// to only display changing frequencies
 	int freqDiff = -30000;
 	tuning = 1;
-	while(tuning) {
+	while(tuning) { // while tuning, we keep telling the user where they are
 		freqDiff = evaluateData(freqDiff);
-		button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
 
+		// if button is pressed, we exit tuning
+		button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
 		if (!button_state)
 		{
 			tuning = 0;
-			while (!button_state) {
+			while (!button_state) { // wait for user to release button
 				button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
 			}
 			return;
@@ -678,45 +684,55 @@ void record() {
 	}
 }
 
+/*
+ * evaluateData() compares the sampled frequency to the string target frequency.
+ * Then, it prints the results to the user.
+ */
 int evaluateData(int pFD) {
+	// buffer for user interface
 	char *buffer = (char*) malloc(sizeof(char)*200);
+
+	// target frequency and differential
 	int targetFreq = stringFreqs[currentString];
 	int freqDiff = targetFreq - freq;
+
+	// if we are in the acceptable interval, string is tuned!
 	if (abs(freqDiff) <= TUNING_THRESHOLD) {
+
+		// let the user know the string is tuned
 		memset(buffer, 0x00, 200);
 		sprintf(buffer, "String %s is tuned! Press twice to switch strings.\n", stringNames[currentString]);
 		HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
+
+		// set tuning to false, reset frequency for next string
 		tuning = 0;
 		freq = 0;
-	} else if (pFD != freqDiff) {
+
+	} else if (pFD != freqDiff) { // if the frequency difference is not the same as the previous one, display the new difference
 		char* instruction;
+		char * action;
+
+		// quantifier for tightening or loosening string
 		if (abs(freqDiff) < 5) {
 			instruction = "a little";
 		} else {
 			instruction = "a lot";
 		}
-		char * action;
-		if (freqDiff > 0){
+
+		// figure out if we are tightening or loosening
+		if (freqDiff > 0) {
 			action = "Tighten";
 		} else {
 			action = "Loosen";
 		}
-		//		clr();
+		// print instruction to user
 		memset(buffer, 0x00, 200);
-		sprintf(buffer, "Tuning String %s. You are %dHz off your target frequency. %s your string by %s\n", stringNames[currentString], abs(freqDiff), action ,instruction);
+		sprintf(buffer, "Tuning String %s. You are %dHz off your target frequency. %s your string %s\n", stringNames[currentString], abs(freqDiff), action ,instruction);
 		HAL_UART_Transmit(&huart1, buffer, strlen(buffer), 200);
 	}
 	free(buffer);
 	return freqDiff;
 }
-
-void clr() {
-	char buff[5];
-	sprintf(buff, "%c[2J", 32);
-	HAL_UART_Transmit(&huart1, &buff, sizeof(buff), 200);
-}
-
-
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -734,49 +750,46 @@ void StartDefaultTask(void const * argument)
 	{
 		osDelay(10);
 
-		if (tuning == 0) {
-
+		if (tuning == 0) { // if we are not tuning already
 			button_state = 1;
 
-
-			// User Interface
+			// User Interface: print welcome message
 			char * welcome = (char*) malloc(sizeof(char)*500);
 			memset(welcome, 0x00, 500);
 			sprintf(welcome, "Press blue button once to start recording, twice to change strings. \n");
 			HAL_UART_Transmit(&huart1, welcome, strlen(welcome), 500);
 			free(welcome);
 
+			// wait for user to press button once
 			while (button_state) {
 				button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
-				//    	buttonInterrupt= 0;
 			}
-			//    buttonInterrupt = 1;
-			//    if (tuning) {
-			//    	tuning = 0;
-			//    	freq = 0;
-			//     	recording = 0;
-			//    }
-			tick = HAL_GetTick();
-			utime = 0;
-			while (!button_state) {
+
+			// need to detect double press
+			tick = HAL_GetTick(); // get current time
+			utime = 0; // delay
+
+			while (!button_state) { // wait for user to release button
 				button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
 			}
+
+			// if the user presses the button again within timeout, we count it as double press
 			while (utime < timeout) {
 				button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
 				if (!button_state) {
-					pressed = !pressed;
-					//    		buttonInterrupt = 2;
-					while (!button_state) {
+					pressed = !pressed; // indicate we pressed twice
+
+					while (!button_state) { // wait for user to release button
 						button_state = HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin);
 					}
 					break;
 				}
-				utime = HAL_GetTick() - tick;
+				utime = HAL_GetTick() - tick; // update time elapsed
 			}
+			// respond to pushbutton presses
 			userInput(pressed);
 
-
-			pressed = 0;
+			pressed = 0; // reset
 		}
 
 	}
@@ -798,15 +811,18 @@ void StartAudioSamplingTask(void const * argument)
 	for(;;)
 	{
 		osDelay(1);
+		// if we are recording, tuning, we fill array
 		if (recording && tuning && sample_count < RAW_SIZE)
 		{
 			data[sample_count] = data2[0];
 			sample_count++;
 		} else if (data2[0] - x  >= 20000000 && tuning)
 		{
+			// if not recording yet, record
 			recording = 1;
 		}
-
+	
+		// once the data buffer is full, compute fft
 		else if (sample_count >= RAW_SIZE){
 			sample_count = 0;
 			recording = 0;
@@ -817,20 +833,17 @@ void StartAudioSamplingTask(void const * argument)
 			{
 				fourier[i-2] = fourier[i];
 			}
-
+			
 			arm_cmplx_mag_q31(fourier, data, RAW_SIZE);
 
 			arm_max_q31(data, RAW_SIZE, &max_ft, &freq);
 
 			osDelay(20);
 
-			// TODO: process
 		}
 
 		x=data2[0];
-		//    x = HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter1, data, FFT_SIZE);
 
-		//Incorporate mutex or semaphore to stop execution while calculating fourier transform
 	}
 	/* USER CODE END StartAudioSamplingTask */
 }
@@ -848,10 +861,6 @@ void StartFourierCalTask(void const * argument)
 	/* Infinite loop */
 	for(;;)
 	{
-		osDelay(1);
-		while(buttonInterrupt != 0){
-			userInput(pressed);
-		}
 
 
 	}
